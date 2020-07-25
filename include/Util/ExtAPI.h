@@ -67,6 +67,7 @@ public:
         EFT_A2R_A1,       //stores arg1 into *arg2
         EFT_A4R_A1,       //stores arg1 into *arg4
         EFT_L_A0__A2R_A0, //stores arg0 into *arg2 and returns it
+        EFT_L_A0__A1_A0,  //store arg1 into arg0's base and returns arg0
         EFT_A0R_NEW,      //stores a pointer to an allocated object in *arg0
         EFT_A1R_NEW,      //as above, into *arg1, etc.
         EFT_A2R_NEW,
@@ -89,7 +90,7 @@ private:
     //  (hash_map and map are much slower).
     llvm::StringMap<extf_t> info;
     //A cache of is_ext results for all SVFFunction*'s (hash_map is fastest).
-    std::map<const SVFFunction*, bool> isext_cache;
+    DenseMap<const SVFFunction*, bool> isext_cache;
 
     void init();                          //fill in the map (see ExtAPI.cpp)
 
@@ -203,7 +204,7 @@ public:
     {
         assert(F);
         //Check the cache first; everything below is slower.
-        std::map<const SVFFunction*, bool>::iterator i_iec= isext_cache.find(F);
+        DenseMap<const SVFFunction*, bool>::iterator i_iec= isext_cache.find(F);
         if(i_iec != isext_cache.end())
             return i_iec->second;
 

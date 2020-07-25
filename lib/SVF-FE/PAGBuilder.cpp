@@ -34,6 +34,7 @@
 #include "SVF-FE/CPPUtil.h"
 #include "Graphs/ExternalPAG.h"
 #include "Util/BasicTypes.h"
+#include "MemoryModel/PAGBuilderFromFile.h"
 
 using namespace std;
 using namespace SVFUtil;
@@ -44,7 +45,16 @@ using namespace SVFUtil;
  */
 PAG* PAGBuilder::build(SVFModule* svfModule)
 {
+
+    // We read PAG from a user-defined txt instead of parsing PAG from LLVM IR
+    if (SVFModule::pagReadFromTXT())
+    {
+        PAGBuilderFromFile fileBuilder(SVFModule::pagFileName());
+        return fileBuilder.build();
+    }
+
     svfMod = svfModule;
+
     /// initial external library information
     /// initial PAG nodes
     initalNode();
@@ -982,6 +992,24 @@ void PAGBuilder::handleExtCall(CallSite cs, const SVFFunction *callee)
                     addStoreEdge(vnS,vnD);
                 break;
             }
+			case ExtAPI::EFT_L_A0__A1_A0:
+			{
+				/// this case is for strcpy(dst,src); to maintain its semantics
+				/// we will store src to the base of dst instead of dst.
+				/// dst = load base
+				/// store src base
+				if (const LoadInst *load = SVFUtil::dyn_cast<LoadInst>(cs.getArgument(0))) {
+					addStoreEdge(getValueNode(cs.getArgument(1)), getValueNode(load->getPointerOperand()));
+					if (SVFUtil::isa<PointerType>(inst->getType()))
+						addLoadEdge(getValueNode(load->getPointerOperand()), getValueNode(inst));
+				}
+//				else if (const GetElementPtrInst *gep = SVFUtil::dyn_cast<GetElementPtrInst>(cs.getArgument(0))) {
+//					addStoreEdge(getValueNode(cs.getArgument(1)), getValueNode(cs.getArgument(0)));
+//					if (SVFUtil::isa<PointerType>(inst->getType()))
+//						addCopyEdge(getValueNode(cs.getArgument(0)), getValueNode(inst));
+//				}
+				break;
+			}
             case ExtAPI::EFT_L_A0__A2R_A0:
             {
                 if(SVFUtil::isa<PointerType>(inst->getType()))
@@ -1257,7 +1285,7 @@ void PAGBuilder::sanityCheck()
 NodeID PAGBuilder::getGepValNode(const Value* val, const LocationSet& ls, const Type *baseType, u32_t fieldidx)
 {
     NodeID base = pag->getBaseValNode(getValueNode(val));
-    NodeID gepval = pag->getGepValNode(base, ls);
+    NodeID gepval = pag->getGepValNode(curVal, base, ls);
     if (gepval==-1)
     {
         /*
@@ -1277,7 +1305,7 @@ NodeID PAGBuilder::getGepValNode(const Value* val, const LocationSet& ls, const 
         const Value* cval = getCurrentValue();
         const BasicBlock* cbb = getCurrentBB();
         setCurrentLocation(curVal, NULL);
-        NodeID gepNode= pag->addGepValNode(val,ls,pag->getPAGNodeNum(),type,fieldidx);
+        NodeID gepNode= pag->addGepValNode(curVal, val,ls,pag->getPAGNodeNum(),type,fieldidx);
         addGepEdge(base, gepNode, ls, true);
         setCurrentLocation(cval, cbb);
         return gepNode;
@@ -1311,6 +1339,15 @@ void PAGBuilder::setCurrentBBAndValueForPAGEdge(PAGEdge* edge)
     ICFGNode* icfgNode = pag->getICFG()->getGlobalBlockNode();
     if (const Instruction *curInst = SVFUtil::dyn_cast<Instruction>(curVal))
     {
+        const Function* srcFun = edge->getSrcNode()->getFunction();
+        const Function* dstFun = edge->getDstNode()->getFunction();
+        if(srcFun!=NULL && !SVFUtil::isa<RetPE>(edge) && !SVFUtil::isa<Function>(edge->getSrcNode()->getValue())) {
+            assert(srcFun==curInst->getFunction() && "SrcNode of the PAGEdge not in the same function?");
+        }
+        if(dstFun!=NULL && !SVFUtil::isa<CallPE>(edge) && !SVFUtil::isa<Function>(edge->getDstNode()->getValue())) {
+            assert(dstFun==curInst->getFunction() && "DstNode of the PAGEdge not in the same function?");
+        }
+
         /// We assume every GepValPN and its GepPE are unique across whole program
         if (!(SVFUtil::isa<GepPE>(edge) && SVFUtil::isa<GepValPN>(edge->getDstNode())))
             assert(curBB && "instruction does not have a basic block??");

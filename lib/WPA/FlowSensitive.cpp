@@ -43,11 +43,11 @@ FlowSensitive* FlowSensitive::fspta = NULL;
 /*!
  * Initialize analysis
  */
-void FlowSensitive::initialize(SVFModule* svfModule)
+void FlowSensitive::initialize()
 {
-    PointerAnalysis::initialize(svfModule);
+    PointerAnalysis::initialize();
 
-    AndersenWaveDiff* ander = AndersenWaveDiff::createAndersenWaveDiff(svfModule);
+    AndersenWaveDiff* ander = AndersenWaveDiff::createAndersenWaveDiff(getPAG());
     // When evaluating ctir aliases, we want the whole SVFG.
     svfg = CTirAliasEval ? memSSA.buildFullSVFG(ander) : memSSA.buildPTROnlySVFG(ander);
     setGraph(svfg);
@@ -59,10 +59,10 @@ void FlowSensitive::initialize(SVFModule* svfModule)
 /*!
  * Start analysis
  */
-void FlowSensitive::analyze(SVFModule* svfModule)
+void FlowSensitive::analyze()
 {
     /// Initialization for the Solver
-    initialize(svfModule);
+    initialize();
 
     double start = stat->getClk();
     /// Start solving constraints
@@ -101,7 +101,8 @@ void FlowSensitive::analyze(SVFModule* svfModule)
  */
 void FlowSensitive::finalize()
 {
-    svfg->dump("fs_solved", true);
+	if(svfg->getDumpVFG())
+		svfg->dump("fs_solved", true);
 
     NodeStack& nodeStack = WPASolver<SVFG*>::SCCDetect();
     while (nodeStack.empty() == false)
@@ -275,17 +276,14 @@ bool FlowSensitive::propAlongDirectEdge(const DirectSVFGEdge* edge)
  */
 bool FlowSensitive::propagateFromAPToFP(const ActualParmSVFGNode* ap, const SVFGNode* dst)
 {
-    if (const FormalParmSVFGNode* fp = SVFUtil::dyn_cast<FormalParmSVFGNode>(dst))
-    {
-        NodeID pagDst = fp->getParam()->getId();
-        const PointsTo & srcCPts = getPts(ap->getParam()->getId());
-        return unionPts(pagDst, srcCPts);
-    }
-    else
-    {
-        assert(false && "expecting a formal param node");
-        return false;
-    }
+    const FormalParmSVFGNode* fp = SVFUtil::dyn_cast<FormalParmSVFGNode>(dst);
+    assert(fp && "expecting a formal param node");
+
+    NodeID pagDst = fp->getParam()->getId();
+    const PointsTo &srcCPts = getPts(ap->getParam()->getId());
+    bool changed = unionPts(pagDst, srcCPts);
+
+    return changed;
 }
 
 /*!
@@ -294,17 +292,14 @@ bool FlowSensitive::propagateFromAPToFP(const ActualParmSVFGNode* ap, const SVFG
  */
 bool FlowSensitive::propagateFromFRToAR(const FormalRetSVFGNode* fr, const SVFGNode* dst)
 {
-    if (const ActualRetSVFGNode* ar = SVFUtil::dyn_cast<ActualRetSVFGNode>(dst))
-    {
-        NodeID pagDst = ar->getRev()->getId();
-        const PointsTo & srcCPts = getPts(fr->getRet()->getId());
-        return unionPts(pagDst, srcCPts);
-    }
-    else
-    {
-        assert(false && "expecting a actual return node");
-        return false;
-    }
+    const ActualRetSVFGNode* ar = SVFUtil::dyn_cast<ActualRetSVFGNode>(dst);
+    assert(ar && "expecting an actual return node");
+
+    NodeID pagDst = ar->getRev()->getId();
+    const PointsTo & srcCPts = getPts(fr->getRet()->getId());
+    bool changed = unionPts(pagDst, srcCPts);
+
+    return changed;
 }
 
 /*!
@@ -391,7 +386,7 @@ bool FlowSensitive::processCopy(const CopySVFGNode* copy)
     double start = stat->getClk();
     bool changed = unionPts(copy->getPAGDstNodeID(), copy->getPAGSrcNodeID());
     double end = stat->getClk();
-    copyGepTime += (end - start) / TIMEINTERVAL;
+    copyTime += (end - start) / TIMEINTERVAL;
     return changed;
 }
 
@@ -400,6 +395,7 @@ bool FlowSensitive::processCopy(const CopySVFGNode* copy)
  */
 bool FlowSensitive::processPhi(const PHISVFGNode* phi)
 {
+    double start = stat->getClk();
     bool changed = false;
     NodeID pagDst = phi->getRes()->getId();
     for (PHISVFGNode::OPVers::const_iterator it = phi->opVerBegin(), eit = phi->opVerEnd();	it != eit; ++it)
@@ -409,6 +405,9 @@ bool FlowSensitive::processPhi(const PHISVFGNode* phi)
         if (unionPts(pagDst, srcPts))
             changed = true;
     }
+
+    double end = stat->getClk();
+    phiTime += (end - start) / TIMEINTERVAL;
     return changed;
 }
 
@@ -448,7 +447,7 @@ bool FlowSensitive::processGep(const GepSVFGNode* edge)
         changed = true;
 
     double end = stat->getClk();
-    copyGepTime += (end - start) / TIMEINTERVAL;
+    gepTime += (end - start) / TIMEINTERVAL;
     return changed;
 }
 
@@ -701,7 +700,7 @@ void FlowSensitive::printCTirAliasStats(void)
     assert(dchg && "eval-ctir-aliases needs DCHG.");
 
     // < SVFG node ID (loc), PAG node of interest (top-level pointer) >.
-    std::set<std::pair<NodeID, NodeID>> cmpLocs;
+    DenseSet<std::pair<NodeID, NodeID>> cmpLocs;
     for (SVFG::iterator npair = svfg->begin(); npair != svfg->end(); ++npair)
     {
         NodeID loc = npair->first;
@@ -760,7 +759,7 @@ void FlowSensitive::printCTirAliasStats(void)
                  << "  " << "NO  % : " << 100 * ((double)noAliases/(double)(total)) << "\n";
 }
 
-void FlowSensitive::countAliases(std::set<std::pair<NodeID, NodeID>> cmp, unsigned *mayAliases, unsigned *noAliases)
+void FlowSensitive::countAliases(DenseSet<std::pair<NodeID, NodeID>> cmp, unsigned *mayAliases, unsigned *noAliases)
 {
     for (std::pair<NodeID, NodeID> locPA : cmp)
     {

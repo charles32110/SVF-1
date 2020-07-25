@@ -54,7 +54,8 @@ void SVFGOPT::buildSVFG()
 {
     SVFG::buildSVFG();
 
-    dump("SVFG_before_opt");
+    if(getDumpVFG())
+    	dump("SVFG_before_opt");
 
     DBOUT(DGENERAL, outs() << SVFUtil::pasMsg("\tSVFG Optimisation\n"));
 
@@ -491,7 +492,7 @@ void SVFGOPT::bypassMSSAPHINode(const MSSAPHISVFGNode* node)
     for (; inEdgeIt != inEdgeEit; ++inEdgeIt)
     {
         const SVFGEdge* preEdge = *inEdgeIt;
-        const SVFGNode* src_node = preEdge->getSrcNode();
+        const SVFGNode* srcNode = preEdge->getSrcNode();
 
         bool added = false;
         /// add new edges from predecessor to all successors.
@@ -500,14 +501,15 @@ void SVFGOPT::bypassMSSAPHINode(const MSSAPHISVFGNode* node)
         for (; outEdgeIt != outEdgeEit; ++outEdgeIt)
         {
             const SVFGEdge* succEdge = *outEdgeIt;
-            const SVFGNode* dst_node = (*outEdgeIt)->getDstNode();
-            if (addNewSVFGEdge(src_node->getId(), dst_node->getId(), preEdge, succEdge))
+            const SVFGNode* dstNode = (*outEdgeIt)->getDstNode();
+            if (srcNode->getId() != dstNode->getId()
+                && addNewSVFGEdge(srcNode->getId(), dstNode->getId(), preEdge, succEdge))
                 added = true;
             else
             {
                 /// if no new edge is added, the number of dst node's incoming edges may be decreased.
                 /// try to analyze it again.
-                addIntoWorklist(dst_node);
+                addIntoWorklist(dstNode);
             }
         }
 
@@ -515,7 +517,7 @@ void SVFGOPT::bypassMSSAPHINode(const MSSAPHISVFGNode* node)
         {
             /// if no new edge is added, the number of src node's outgoing edges may be decreased.
             /// try to analyze it again.
-            addIntoWorklist(src_node);
+            addIntoWorklist(srcNode);
         }
     }
 

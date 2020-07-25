@@ -34,10 +34,6 @@
 
 using namespace SVFUtil;
 
-
-static llvm::cl::opt<bool> CallGraphDotGraph("dump-callgraph", llvm::cl::init(false),
-        llvm::cl::desc("Dump dot graph of Call Graph"));
-
 PTACallGraph::CallSiteToIdMap PTACallGraph::csToIdMap;
 PTACallGraph::IdToCallSiteMap PTACallGraph::idToCSMap;
 CallSiteID PTACallGraph::totalCallSiteNum = 1;
@@ -57,6 +53,25 @@ void PTACallGraphEdge::addInDirectCallSite(const CallBlockNode* call)
     indirectCalls.insert(call);
 }
 //@}
+
+const std::string PTACallGraphEdge::toString() const {
+    std::string str;
+    raw_string_ostream rawstr(str);
+    rawstr << "CallSite ID: " << getCallSiteID();
+    if(isDirectCallEdge())
+        rawstr << "direct call";
+    else
+        rawstr << "indirect call";
+    rawstr << "[" << getDstID() << "<--" << getSrcID() << "]\t";
+    return rawstr.str();
+}
+
+const std::string PTACallGraphNode::toString() const {
+    std::string str;
+    raw_string_ostream rawstr(str);
+    rawstr << "CallGraphNode ID: " << getId() << " {fun: " << fun->getName() << "}";
+    return rawstr.str();
+}
 
 bool PTACallGraphNode::isReachableFromProgEntry() const
 {
@@ -298,9 +313,7 @@ bool PTACallGraph::isReachableBetweenFunctions(const SVFFunction* srcFn, const S
  */
 void PTACallGraph::dump(const std::string& filename)
 {
-    if(CallGraphDotGraph)
-        GraphPrinter::WriteGraphToFile(outs(), filename, this);
-
+      GraphPrinter::WriteGraphToFile(outs(), filename, this);
 }
 
 

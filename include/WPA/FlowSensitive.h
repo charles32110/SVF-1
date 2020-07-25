@@ -51,11 +51,11 @@ public:
     typedef BVDataPTAImpl::IncDFPTDataTy::PtsMap PtsMap;
 
     /// Constructor
-    FlowSensitive(PTATY type = FSSPARSE_WPA) : WPASVFGFSSolver(), BVDataPTAImpl(type)
+    FlowSensitive(PAG* _pag, PTATY type = FSSPARSE_WPA) : WPASVFGFSSolver(), BVDataPTAImpl(_pag, type)
     {
         svfg = NULL;
         solveTime = sccTime = processTime = propagationTime = updateTime = 0;
-        addrTime = copyGepTime = loadTime = storeTime = 0;
+        addrTime = copyTime = gepTime = loadTime = storeTime = phiTime = 0;
         updateCallGraphTime = directPropaTime = indirectPropaTime = 0;
         numOfProcessedAddr = numOfProcessedCopy = numOfProcessedGep = 0;
         numOfProcessedLoad = numOfProcessedStore = 0;
@@ -74,12 +74,12 @@ public:
     }
 
     /// Create signle instance of flow-sensitive pointer analysis
-    static FlowSensitive* createFSWPA(SVFModule* svfModule)
+    static FlowSensitive* createFSWPA(PAG* _pag)
     {
         if (fspta == NULL)
         {
-            fspta = new FlowSensitive();
-            fspta->analyze(svfModule);
+            fspta = new FlowSensitive(_pag);
+            fspta->analyze();
         }
         return fspta;
     }
@@ -93,16 +93,16 @@ public:
     }
 
     /// We start from here
-    virtual bool runOnModule(SVFModule* module)
+    virtual bool runOnModule(SVFModule*)
     {
         return false;
     }
 
     /// Flow sensitive analysis
-    virtual void analyze(SVFModule* svfModule);
+    virtual void analyze();
 
     /// Initialize analysis
-    virtual void initialize(SVFModule* svfModule);
+    virtual void initialize();
 
     /// Finalize analysis
     virtual void finalize();
@@ -238,7 +238,7 @@ protected:
     virtual void printCTirAliasStats(void);
 
     /// Fills may/noAliases for the location/pointer pairs in cmp.
-    virtual void countAliases(std::set<std::pair<NodeID, NodeID>> cmp, unsigned *mayAliases, unsigned *noAliases);
+    virtual void countAliases(DenseSet<std::pair<NodeID, NodeID>> cmp, unsigned *mayAliases, unsigned *noAliases);
 
     SVFG* svfg;
     ///Get points-to set for a node from data flow IN/OUT set at a statement.
@@ -292,14 +292,17 @@ protected:
     double indirectPropaTime; ///< time of points-to propagation of top-level pointers
     double updateTime;	///< time of strong/weak updates.
     double addrTime;	///< time of handling address edges
-    double copyGepTime;	///< time of handling copy and gep edges
+    double copyTime;	///< time of handling copy edges
+    double gepTime;	///< time of handling gep edges
     double loadTime;	///< time of load edges
     double storeTime;	///< time of store edges
+    double phiTime;	///< time of phi nodes.
     double updateCallGraphTime; ///< time of updating call graph
 
     NodeBS svfgHasSU;
     //@}
 
+    void svfgStat();
 };
 
 #endif /* FLOWSENSITIVEANALYSIS_H_ */
